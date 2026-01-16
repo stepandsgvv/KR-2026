@@ -1,0 +1,245 @@
+<?php
+require_once 'config.php';
+
+// Если пользователь уже авторизован
+if (isset($_SESSION['user_id'])) {
+    header('Location: index.php');
+    exit();
+}
+
+$error = '';
+$username = '';
+$show_captcha = false;
+
+// Проверяем количество неудачных попыток
+if (isset($_SESSION['login_attempts']) && $_SESSION['login_attempts'] >= 3) {
+    $show_captcha = true;
+}
+
+if ($_SERVER['REQUEST_METHOD'] == 'POST') {
+    $username = clean_input($_POST['username'] ?? '');
+    $password = $_POST['password'] ?? '';
+    $remember = isset($_POST['remember']);
+    $captcha = $_POST['captcha'] ?? '';
+    
+    if (empty($username) || empty($password)) {
+        $error = 'Заполните все поля';
+       } elseif ($show_captcha && empty($captcha)) {
+       $error = 'Введите код с картинки';
+     } elseif ($show_captcha && $captcha !== ($_SESSION['captcha_code'] ?? '')) {
+       $error = 'Неверный код с картинки';
+    } else {
+        // Вызов функции авторизации из auth.php
+        $result = authenticate_user($username, $password);
+        
+        if ($result['success']) {
+            // Если выбрано "Запомнить меня", устанавливаем длительную сессию
+            if ($remember) {
+                $params = session_get_cookie_params();
+                setcookie(
+                    session_name(),
+                    session_id(),
+                    time() + 2592000, // 30 дней
+                    $params["path"],
+                    $params["domain"],
+                    $params["secure"],
+                    $params["httponly"]
+                );
+            }
+            
+            // Сбрасываем счетчик попыток
+            unset($_SESSION['login_attempts']);
+            unset($_SESSION['captcha_code']);
+            
+            header('Location: index.php?module=dashboard');
+            exit();
+        } else {
+            $error = $result['message'];
+            
+            // Увеличиваем счетчик неудачных попыток
+            $_SESSION['login_attempts'] = ($_SESSION['login_attempts'] ?? 0) + 1;
+            
+            if ($_SESSION['login_attempts'] >= 3) {
+                $show_captcha = true;
+            }
+        }
+    }
+}
+
+// Генерируем код капчи
+if ($show_captcha) {
+    $captcha_code = rand(1000, 9999);
+    $_SESSION['captcha_code'] = (string)$captcha_code;
+}
+?>
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Вход в систему | <?php echo SITE_NAME; ?></title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+    <style>
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+        }
+        .login-card {
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+        .login-header {
+            background: linear-gradient(135deg, #0d6efd 0%, #0dcaf0 100%);
+            color: white;
+            padding: 2rem;
+            text-align: center;
+        }
+        .login-footer {
+            background-color: #f8f9fa;
+            border-top: 1px solid #dee2e6;
+            padding: 1rem;
+            text-align: center;
+        }
+        .captcha {
+            font-family: 'Courier New', monospace;
+            font-size: 24px;
+            font-weight: bold;
+            background: linear-gradient(45deg, #f0f0f0, #e0e0e0);
+            padding: 10px;
+            border-radius: 5px;
+            text-align: center;
+            letter-spacing: 5px;
+            user-select: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="row justify-content-center">
+            <div class="col-md-6 col-lg-5">
+                <div class="login-card">
+                    <div class="login-header">
+                        <h1><i class="bi bi-box-seam"></i> <?php echo SITE_NAME; ?></h1>
+                        <p class="mb-0">Система складского учета готовой продукции</p>
+                    </div>
+                    
+                    <div class="p-4">
+                        <?php if ($error): ?>
+                            <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                                <?php echo $error; ?>
+                                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                            </div>
+                        <?php endif; ?>
+                        
+                        <?php if (isset($_SESSION['login_attempts']) && $_SESSION['login_attempts'] >= 3): ?>
+                            <div class="alert alert-warning">
+                                <i class="bi bi-shield-exclamation"></i>
+                                Обнаружено несколько неудачных попыток входа. Пожалуйста, введите код с картинки.
+                            </div>
+                        <?php endif; ?>
+                        
+                        <form method="POST" action="">
+                            <div class="mb-3">
+                                <label for="username" class="form-label">
+                                    <i class="bi bi-person"></i> Имя пользователя
+                                </label>
+                                <input type="text" class="form-control" id="username" name="username" 
+                                       value="<?php echo htmlspecialchars($username); ?>" 
+                                       required autofocus autocomplete="username">
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="password" class="form-label">
+                                    <i class="bi bi-key"></i> Пароль
+                                </label>
+                                <div class="input-group">
+                                    <input type="password" class="form-control" id="password" name="password" 
+                                           required autocomplete="current-password">
+                                    <button class="btn btn-outline-secondary" type="button" id="togglePassword">
+                                        <i class="bi bi-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <?php if ($show_captcha): ?>
+                            <div class="mb-3">
+                                <label class="form-label">
+                                    <i class="bi bi-shield-check"></i> Код подтверждения
+                                </label>
+                                <div class="captcha mb-2">
+                                    <?php echo $_SESSION['captcha_code'] ?? ''; ?>
+                                </div>
+                                <input type="text" class="form-control" name="captcha" 
+                                       placeholder="Введите код с картинки" required>
+                                <small class="text-muted">Введите 4 цифры, которые видите выше</small>
+                            </div>
+                            <?php endif; ?>
+                            
+                            <div class="mb-3 form-check">
+                                <input type="checkbox" class="form-check-input" id="remember" name="remember">
+                                <label class="form-check-label" for="remember">Запомнить меня</label>
+                            </div>
+                            
+                            <button type="submit" class="btn btn-primary w-100 py-2">
+                                <i class="bi bi-box-arrow-in-right"></i> Войти
+                            </button>
+                        </form>
+                        
+                        <div class="mt-3 text-center">
+                            <a href="reset_password.php" class="text-decoration-none">
+                                <i class="bi bi-question-circle"></i> Забыли пароль?
+                            </a>
+                        </div>
+                    </div>
+                    
+                    <div class="login-footer">
+                        <small class="text-muted">
+                            Демо доступы:<br>
+                            <strong>admin / admin123</strong> (администратор)<br>
+                            <strong>manager / manager123</strong> (менеджер)<br>
+                            <strong>ivanov / storekeeper123</strong> (кладовщик)
+                        </small>
+                    </div>
+                </div>
+                
+                <div class="text-center mt-3 text-white">
+                    <small>
+                        &copy; <?php echo date('Y'); ?> <?php echo SITE_NAME; ?>
+                    </small>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Показать/скрыть пароль
+        document.getElementById('togglePassword').addEventListener('click', function() {
+            const passwordInput = document.getElementById('password');
+            const icon = this.querySelector('i');
+            
+            if (passwordInput.type === 'password') {
+                passwordInput.type = 'text';
+                icon.className = 'bi bi-eye-slash';
+            } else {
+                passwordInput.type = 'password';
+                icon.className = 'bi bi-eye';
+            }
+        });
+        
+        // Автоматическое скрытие алерта через 5 секунд
+        setTimeout(() => {
+            const alert = document.querySelector('.alert');
+            if (alert) {
+                const bsAlert = new bootstrap.Alert(alert);
+                bsAlert.close();
+            }
+        }, 5000);
+    </script>
+</body>
+</html>
