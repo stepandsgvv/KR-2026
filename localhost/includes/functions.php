@@ -488,4 +488,64 @@ if (!function_exists('is_logged_in')) {
         return isset($_SESSION['user_id']);
     }
 }
+
+if (!function_exists('get_user_notifications')) {
+    /**
+     * Получение уведомлений пользователя
+     * @param int $user_id ID пользователя
+     * @param bool $unread_only Только непрочитанные
+     * @param int $limit Лимит
+     * @return array Уведомления
+     */
+    function get_user_notifications($user_id, $unread_only = false, $limit = 10) {
+        $where = ['user_id = ?'];
+        $params = [$user_id];
+        
+        if ($unread_only) {
+            $where[] = 'is_read = 0';
+        }
+        
+        $where_clause = 'WHERE ' . implode(' AND ', $where);
+        
+        $result = db_fetch_all("
+            SELECT * FROM notifications
+            {$where_clause}
+            ORDER BY created_at DESC
+            LIMIT ?
+        ", array_merge($params, [$limit]));
+        
+        return $result ?: [];
+    }
+}
+
+if (!function_exists('mark_notification_read')) {
+    /**
+     * Пометить уведомление как прочитанное
+     * @param int $notification_id ID уведомления
+     * @param int $user_id ID пользователя
+     * @return bool Успешность
+     */
+    function mark_notification_read($notification_id, $user_id) {
+        return db_query("
+            UPDATE notifications 
+            SET is_read = 1, read_at = NOW() 
+            WHERE id = ? AND user_id = ?
+        ", [$notification_id, $user_id]);
+    }
+}
+
+if (!function_exists('mark_all_notifications_read')) {
+    /**
+     * Пометить все уведомления пользователя как прочитанные
+     * @param int $user_id ID пользователя
+     * @return bool Успешность
+     */
+    function mark_all_notifications_read($user_id) {
+        return db_query("
+            UPDATE notifications 
+            SET is_read = 1, read_at = NOW() 
+            WHERE user_id = ? AND is_read = 0
+        ", [$user_id]);
+    }
+}
 ?>

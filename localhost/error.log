@@ -3176,3 +3176,60 @@ Stack trace:
     [8] => Приемка от поставщика: пом
 )
 
+[19-Jan-2026 14:13:39 Europe/Moscow] SQL Error: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'operation_type' in 'where clause'
+[19-Jan-2026 14:13:39 Europe/Moscow] SQL Query: 
+                        SELECT COUNT(*) as count, SUM(quantity) as total 
+                        FROM inventory_transactions 
+                        WHERE DATE(created_at) = CURDATE() 
+                        AND operation_type = 'receipt'
+                        AND user_id = ?
+                    
+[19-Jan-2026 14:13:39 Europe/Moscow] SQL Params: Array
+(
+    [0] => 1
+)
+
+[19-Jan-2026 14:13:39 Europe/Moscow] SQL Error: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'document_number' in 'field list'
+[19-Jan-2026 14:13:39 Europe/Moscow] SQL Query: 
+                        SELECT DISTINCT document_number, COUNT(*) as items, 
+                               SUM(quantity) as total_qty, MAX(created_at) as last_date
+                        FROM inventory_transactions 
+                        WHERE operation_type = 'receipt'
+                        GROUP BY document_number 
+                        ORDER BY last_date DESC 
+                        LIMIT 5
+                    
+[19-Jan-2026 14:13:39 Europe/Moscow] SQL Params: Array
+(
+)
+
+[19-Jan-2026 14:13:45 Europe/Moscow] SQL Error: SQLSTATE[42000]: Syntax error or access violation: 1055 Expression #1 of ORDER BY clause is not in GROUP BY clause and contains nonaggregated column 'skladpro.d.document_date' which is not functionally dependent on columns in GROUP BY clause; this is incompatible with sql_mode=only_full_group_by
+[19-Jan-2026 14:13:45 Europe/Moscow] SQL Query: 
+    SELECT 
+        DATE(d.document_date) as date,
+        ot.code as operation_type,
+        ot.name as operation_name,
+        p.article,
+        p.name as product_name,
+        p.unit,
+        c.name as category_name,
+        SUM(CASE WHEN it.quantity > 0 THEN it.quantity ELSE 0 END) as incoming,
+        SUM(CASE WHEN it.quantity < 0 THEN ABS(it.quantity) ELSE 0 END) as outgoing,
+        SUM(it.quantity) as net_change,
+        COUNT(DISTINCT d.id) as documents_count,
+        COUNT(*) as transactions_count
+    FROM inventory_transactions it
+    JOIN documents d ON it.document_id = d.id
+    JOIN operation_types ot ON d.operation_type_id = ot.id
+    JOIN products p ON it.product_id = p.id
+    LEFT JOIN categories c ON p.category_id = c.id
+    WHERE DATE(d.document_date) BETWEEN ? AND ?
+    GROUP BY DATE(d.document_date), ot.code, it.product_id
+    ORDER BY d.document_date DESC, ot.code, p.article
+
+[19-Jan-2026 14:13:45 Europe/Moscow] SQL Params: Array
+(
+    [0] => 2026-01-01
+    [1] => 2026-01-19
+)
+

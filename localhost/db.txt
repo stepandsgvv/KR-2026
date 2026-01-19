@@ -177,6 +177,19 @@ CREATE TABLE settings (
     updated_at DATETIME ON UPDATE CURRENT_TIMESTAMP
 );
 
+-- Уведомления пользователей
+CREATE TABLE notifications (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    user_id INT NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    message TEXT NOT NULL,
+    type ENUM('info', 'success', 'warning', 'danger') DEFAULT 'info',
+    is_read BOOLEAN DEFAULT FALSE,
+    read_at DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
 -- Индексы для оптимизации
 CREATE INDEX idx_products_article ON products(article);
 CREATE INDEX idx_products_category ON products(category_id);
@@ -254,3 +267,5 @@ INSERT INTO settings (`key`, `value`, description) VALUES
 ('default_warehouse', '1', 'Склад по умолчанию'),
 ('low_stock_threshold', '30', 'Порог предупреждения о низком остатке (дни)'),
 ('session_timeout', '7200', 'Таймаут сессии в секундах');
+-- Добавьте после CREATE TABLE password_resets
+
