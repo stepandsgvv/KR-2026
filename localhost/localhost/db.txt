@@ -1,0 +1,271 @@
+-- Создание базы данных
+CREATE DATABASE IF NOT EXISTS skladpro CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+USE skladpro;
+
+-- Пользователи системы
+CREATE TABLE users (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    username VARCHAR(50) UNIQUE NOT NULL,
+    password VARCHAR(255) NOT NULL,
+    full_name VARCHAR(100) NOT NULL,
+    email VARCHAR(100) UNIQUE NOT NULL,
+    role ENUM('admin', 'manager', 'storekeeper', 'viewer') DEFAULT 'viewer',
+    phone VARCHAR(20),
+    is_active BOOLEAN DEFAULT TRUE,
+    last_login DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    is_deleted BOOLEAN DEFAULT FALSE
+);
+
+-- Категории товаров
+CREATE TABLE categories (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    name VARCHAR(100) NOT NULL,
+    parent_id INT NULL,
+    description TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (parent_id) REFERENCES categories(id) ON DELETE SET NULL
+);
+
+-- Товары/Номенклатура
+CREATE TABLE products (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    article VARCHAR(50) UNIQUE NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    category_id INT NULL,
+    unit VARCHAR(20) NOT NULL DEFAULT 'шт',
+    barcode VARCHAR(100),
+    min_stock DECIMAL(15,3) DEFAULT 0,
+    max_stock DECIMAL(15,3) DEFAULT 0,
+    description TEXT,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_by INT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME ON UPDATE CURRENT_TIMESTAMP,
+    is_deleted BOOLEAN DEFAULT FALSE,
+    FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL,
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+);
+
+-- Складские места (зоны хранения)
+CREATE TABLE storage_locations (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    code VARCHAR(20) UNIQUE NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    zone ENUM('receiving', 'storage', 'shipping', 'quarantine') DEFAULT 'storage',
+    capacity DECIMAL(15,3),
+    current_load DECIMAL(15,3) DEFAULT 0,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Партии товаров
+CREATE TABLE batches (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    product_id INT NOT NULL,
+    batch_number VARCHAR(50) NOT NULL,
+    initial_quantity DECIMAL(15,3) NOT NULL,
+    current_quantity DECIMAL(15,3) NOT NULL,
+    supplier VARCHAR(255),
+    purchase_price DECIMAL(15,2),
+    production_date DATE,
+    expiry_date DATE,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+);
+
+-- Остатки на складе
+CREATE TABLE stock_balances (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    product_id INT NOT NULL,
+    batch_id INT NULL,
+    location_id INT NOT NULL,
+    quantity DECIMAL(15,3) NOT NULL DEFAULT 0,
+    reserved_quantity DECIMAL(15,3) DEFAULT 0,
+    last_updated DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY unique_stock (product_id, batch_id, location_id),
+    FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+    FOREIGN KEY (batch_id) REFERENCES batches(id) ON DELETE CASCADE,
+    FOREIGN KEY (location_id) REFERENCES storage_locations(id) ON DELETE CASCADE
+);
+
+-- Типы операций
+CREATE TABLE operation_types (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    code VARCHAR(20) UNIQUE NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    direction ENUM('in', 'out', 'transfer') NOT NULL,
+    affects_stock BOOLEAN DEFAULT TRUE
+);
+
+-- Документы
+CREATE TABLE documents (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    document_number VARCHAR(50) UNIQUE NOT NULL,
+    operation_type_id INT NOT NULL,
+    document_date DATE NOT NULL,
+    counterparty VARCHAR(255),
+    warehouse_from INT NULL,
+    warehouse_to INT NULL,
+    total_amount DECIMAL(15,2),
+    status ENUM('draft', 'completed', 'cancelled') DEFAULT 'draft',
+    created_by INT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    completed_at DATETIME,
+    comments TEXT,
+    FOREIGN KEY (operation_type_id) REFERENCES operation_types(id),
+    FOREIGN KEY (warehouse_from) REFERENCES storage_locations(id),
+    FOREIGN KEY (warehouse_to) REFERENCES storage_locations(id),
+    FOREIGN KEY (created_by) REFERENCES users(id)
+);
+
+-- Транзакции движения товаров
+CREATE TABLE inventory_transactions (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    document_id INT NOT NULL,
+    product_id INT NOT NULL,
+    batch_id INT NULL,
+    location_id_from INT NULL,
+    location_id_to INT NULL,
+    quantity DECIMAL(15,3) NOT NULL,
+    price DECIMAL(15,2),
+    total DECIMAL(15,2) GENERATED ALWAYS AS (quantity * COALESCE(price, 0)) STORED,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE,
+    FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+    FOREIGN KEY (batch_id) REFERENCES batches(id) ON DELETE SET NULL,
+    FOREIGN KEY (location_id_from) REFERENCES storage_locations(id) ON DELETE SET NULL,
+    FOREIGN KEY (location_id_to) REFERENCES storage_locations(id) ON DELETE SET NULL
+);
+
+-- Журнал действий (аудит)
+CREATE TABLE audit_log (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    user_id INT NULL,
+    action VARCHAR(50) NOT NULL,
+    details TEXT,
+    ip_address VARCHAR(45),
+    user_agent VARCHAR(255),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+);
+
+-- Попытки входа
+CREATE TABLE login_attempts (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    username VARCHAR(50) NOT NULL,
+    ip_address VARCHAR(45),
+    attempt_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+    success BOOLEAN DEFAULT FALSE
+);
+
+-- Сброс паролей
+CREATE TABLE password_resets (
+    email VARCHAR(100) NOT NULL,
+    token VARCHAR(255) NOT NULL,
+    expires_at DATETIME NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (email, token)
+);
+
+-- Настройки системы
+CREATE TABLE settings (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    `key` VARCHAR(50) UNIQUE NOT NULL,
+    `value` TEXT,
+    description VARCHAR(255),
+    updated_at DATETIME ON UPDATE CURRENT_TIMESTAMP
+);
+
+-- Уведомления пользователей
+CREATE TABLE notifications (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    user_id INT NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    message TEXT NOT NULL,
+    type ENUM('info', 'success', 'warning', 'danger') DEFAULT 'info',
+    is_read BOOLEAN DEFAULT FALSE,
+    read_at DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- Индексы для оптимизации
+CREATE INDEX idx_products_article ON products(article);
+CREATE INDEX idx_products_category ON products(category_id);
+CREATE INDEX idx_stock_product ON stock_balances(product_id);
+CREATE INDEX idx_stock_location ON stock_balances(location_id);
+CREATE INDEX idx_transactions_document ON inventory_transactions(document_id);
+CREATE INDEX idx_transactions_product ON inventory_transactions(product_id);
+CREATE INDEX idx_audit_user ON audit_log(user_id);
+CREATE INDEX idx_audit_time ON audit_log(created_at);
+CREATE INDEX idx_documents_number ON documents(document_number);
+CREATE INDEX idx_documents_date ON documents(document_date);
+CREATE INDEX idx_batches_product ON batches(product_id);
+CREATE INDEX idx_batches_number ON batches(batch_number);
+
+-- Вставка начальных данных
+INSERT INTO operation_types (code, name, direction, affects_stock) VALUES
+('RECEIPT', 'Приемка', 'in', TRUE),
+('SHIPMENT', 'Отгрузка', 'out', TRUE),
+('MOVEMENT', 'Перемещение', 'transfer', TRUE),
+('INVENTORY', 'Инвентаризация', 'transfer', FALSE),
+('WRITEOFF', 'Списание', 'out', TRUE),
+('RETURN', 'Возврат', 'in', TRUE);
+
+INSERT INTO storage_locations (code, name, zone) VALUES
+('REC-001', 'Зона приемки', 'receiving'),
+('STO-A01', 'Стеллаж А-01', 'storage'),
+('STO-A02', 'Стеллаж А-02', 'storage'),
+('STO-B01', 'Стеллаж Б-01', 'storage'),
+('SHIP-01', 'Зона отгрузки', 'shipping'),
+('QUAR-01', 'Карантин', 'quarantine');
+
+-- Вставка тестовых пользователей
+INSERT INTO users (username, password, full_name, email, role, is_active) VALUES
+('admin', '$2y$12$ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopq', 'Администратор Системы', 'admin@skladpro.local', 'admin', TRUE),
+('manager', '$2y$12$ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopq', 'Менеджер Склада', 'manager@skladpro.local', 'manager', TRUE),
+('ivanov', '$2y$12$ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopq', 'Иванов Иван', 'ivanov@skladpro.local', 'storekeeper', TRUE),
+('petrov', '$2y$12$ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopq', 'Петров Петр', 'petrov@skladpro.local', 'viewer', TRUE);
+
+-- Вставка категорий
+INSERT INTO categories (name, parent_id) VALUES
+('Электроника', NULL),
+('Компьютеры и комплектующие', 1),
+('Бытовая техника', NULL),
+('Крупная бытовая техника', 3),
+('Мелкая бытовая техника', 3),
+('Мебель', NULL),
+('Офисная мебель', 6),
+('Домашняя мебель', 6);
+
+-- Вставка тестовых товаров
+INSERT INTO products (article, name, category_id, unit, barcode, min_stock, max_stock) VALUES
+('PROD-001', 'Ноутбук Dell XPS 13', 2, 'шт', '5901234567890', 5, 50),
+('PROD-002', 'Мышь беспроводная Logitech', 2, 'шт', '5901234567891', 20, 200),
+('PROD-003', 'Холодильник Samsung', 4, 'шт', '5901234567892', 3, 30),
+('PROD-004', 'Кофеварка Philips', 5, 'шт', '5901234567893', 10, 100),
+('PROD-005', 'Офисное кресло', 7, 'шт', '5901234567894', 15, 150),
+('PROD-006', 'Монитор 24" LG', 2, 'шт', '5901234567895', 8, 80);
+
+-- Вставка начальных остатков
+INSERT INTO batches (product_id, batch_number, initial_quantity, current_quantity, supplier, purchase_price) VALUES
+(1, 'BATCH-2024-001', 10, 10, 'Dell Russia', 85000.00),
+(2, 'BATCH-2024-002', 50, 50, 'Logitech', 2500.00),
+(3, 'BATCH-2024-003', 5, 5, 'Samsung', 45000.00);
+
+INSERT INTO stock_balances (product_id, batch_id, location_id, quantity) VALUES
+(1, 1, 2, 10),
+(2, 2, 3, 50),
+(3, 3, 2, 5);
+
+-- Настройки по умолчанию
+INSERT INTO settings (`key`, `value`, description) VALUES
+('site_name', 'СкладPRO', 'Название сайта'),
+('company_name', 'ООО "Складские Технологии"', 'Название компании'),
+('currency', 'RUB', 'Валюта по умолчанию'),
+('default_warehouse', '1', 'Склад по умолчанию'),
+('low_stock_threshold', '30', 'Порог предупреждения о низком остатке (дни)'),
+('session_timeout', '7200', 'Таймаут сессии в секундах');
+-- Добавьте после CREATE TABLE password_resets
+
